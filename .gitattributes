@@ -1,0 +1,6 @@
+* text=auto
+*.py text eol=lf
+README.md text
+readme.md text
+*.yml text
+Dockerfile text
