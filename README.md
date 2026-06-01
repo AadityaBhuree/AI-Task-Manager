@@ -2,6 +2,12 @@
 
 AI Task Manager is a Streamlit app for creating and managing tasks with natural language. It combines a chat assistant, quick-add flow, and a card-based dashboard backed by SQLite.
 
+## Live App
+
+Open the deployed app here:
+
+https://aadityabhuree-ai-task-manager-app-khqoxk.streamlit.app
+
 ## What It Does
 
 - Create tasks from plain English input
