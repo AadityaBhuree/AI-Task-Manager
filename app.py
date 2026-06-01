@@ -272,6 +272,14 @@ st.caption("Manage tasks with natural language quick add and chat-based task com
 tasks = load_tasks()
 stats = task_stats(tasks)
 
+agent_error = None
+try:
+    if "agent" not in st.session_state:
+        st.session_state.agent = createAgent()
+except Exception as exc:
+    agent_error = str(exc)
+    st.session_state.agent = None
+
 st.markdown(
     """
     <div class="hero">
@@ -345,10 +353,14 @@ with right_col:
     st.subheader("Assistant Chat")
     st.caption("Ask for updates, summaries, status changes, or task lookups in plain language.")
 
+    if agent_error:
+        st.warning(agent_error)
+        st.info("Set `GOOGLE_API_KEY` in your deployment environment to enable chat.")
+
     for message in st.session_state.messages:
         st.chat_message(message["role"]).markdown(message["content"])
 
-    query = st.chat_input("Ask the assistant to manage tasks")
+    query = st.chat_input("Ask the assistant to manage tasks", disabled=st.session_state.agent is None)
     if query:
         st.session_state.messages.append({"role": "user", "content": query})
         st.chat_message("user").markdown(query)
