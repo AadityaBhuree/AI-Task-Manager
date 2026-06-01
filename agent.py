@@ -18,11 +18,25 @@ load_dotenv(".env.local")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 
+class _OfflineMessage:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class _OfflineAgent:
+    def invoke(self, *args: Any, **kwargs: Any) -> dict[str, list[_OfflineMessage]]:
+        return {
+            "messages": [
+                _OfflineMessage(
+                    "Set GOOGLE_API_KEY in the deployment environment to enable the assistant."
+                )
+            ]
+        }
+
+
 def _build_llm() -> ChatGoogleGenerativeAI:
     if not GOOGLE_API_KEY:
-        raise RuntimeError(
-            "GOOGLE_API_KEY is missing. Add it to your environment or `.env.local`."
-        )
+        raise RuntimeError("GOOGLE_API_KEY is missing.")
 
     return ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=GOOGLE_API_KEY)
 
@@ -68,6 +82,9 @@ Behavior rules:
 memory = InMemorySaver()
 
 def createAgent():
+    if not GOOGLE_API_KEY:
+        return _OfflineAgent()
+
     llm = _build_llm()
     agent = create_agent(
         model=llm,
