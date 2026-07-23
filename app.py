@@ -1,66 +1,53 @@
+from __future__ import annotations
+
 import streamlit as st
 
-from agent import createAgent
+from agent import create_agent
 from database import LocalSession, Todo, init_db
-from tools import quick_add
-
+from tools import delete_todo, quick_add, update_todo
 
 init_db()
 
 st.set_page_config(page_title="AI Task Manager", page_icon="✅", layout="wide")
 
 if "agent" not in st.session_state:
-    st.session_state.agent = createAgent()
+    st.session_state.agent = create_agent()
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 
-def load_tasks() -> list[Todo]:
+def load_tasks(status_filter: str = "all", search_query: str = "") -> list[Todo]:
+    """Load tasks from SQLite database with optional filtering and search."""
     with LocalSession() as session:
-        return session.query(Todo).order_by(Todo.id.desc()).all()
+        query = session.query(Todo)
+        if status_filter != "all":
+            query = query.filter(Todo.status == status_filter)
+        if search_query.strip():
+            query = query.filter(Todo.title.ilike(f"%{search_query.strip()}%"))
+        return query.order_by(Todo.id.desc()).all()
 
 
-def format_value(value):
-    return value if value else "-"
+def format_value(value: str | None) -> str:
+    return value if value and value.strip() else "-"
 
 
 def status_badge(status: str) -> str:
     labels = {
-        "pending": "Pending",
-        "in_progress": "In Progress",
-        "done": "Done",
+        "pending": "🕒 Pending",
+        "in_progress": "🔄 In Progress",
+        "done": "✅ Done",
     }
     return labels.get(status, status or "Unknown")
 
 
 def priority_badge(priority: str) -> str:
     labels = {
-        "low": "Low",
-        "medium": "Medium",
-        "high": "High",
+        "low": "🟢 Low",
+        "medium": "🟡 Medium",
+        "high": "🔴 High",
     }
     return labels.get(priority, priority or "Unknown")
-
-
-def render_task_card(task: Todo) -> str:
-    return f"""
-    <div class="task-card">
-        <div class="task-card__top">
-            <div>
-                <div class="task-card__id">Task #{task.id}</div>
-                <div class="task-card__title">{task.title}</div>
-            </div>
-            <div class="task-chip task-chip--status">{status_badge(task.status)}</div>
-        </div>
-        <div class="task-card__meta">
-            <span class="task-chip task-chip--priority">Priority: {priority_badge(task.priority)}</span>
-            <span class="task-chip">Due: {format_value(task.due_date)}</span>
-            <span class="task-chip">Created: {format_value(task.created_at)}</span>
-        </div>
-        <div class="task-card__description">{format_value(task.description)}</div>
-    </div>
-    """
 
 
 def task_stats(tasks: list[Todo]) -> dict[str, int]:
@@ -87,7 +74,6 @@ st.markdown(
             --text: #e2e8f0;
             --muted: #94a3b8;
             --accent: #22c55e;
-            --accent-soft: rgba(34, 197, 94, 0.14);
             --accent-2: #38bdf8;
         }
 
@@ -181,7 +167,7 @@ st.markdown(
             background: var(--panel-strong);
             border-radius: 18px;
             padding: 1rem 1rem 0.95rem;
-            margin-bottom: 0.9rem;
+            margin-bottom: 0.5rem;
         }
 
         .task-card__top {
@@ -189,7 +175,7 @@ st.markdown(
             justify-content: space-between;
             gap: 1rem;
             align-items: flex-start;
-            margin-bottom: 0.7rem;
+            margin-bottom: 0.5rem;
         }
 
         .task-card__id {
@@ -197,11 +183,10 @@ st.markdown(
             font-size: 0.78rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            margin-bottom: 0.15rem;
         }
 
         .task-card__title {
-            font-size: 1.02rem;
+            font-size: 1.05rem;
             font-weight: 700;
             line-height: 1.35;
         }
@@ -210,13 +195,7 @@ st.markdown(
             display: flex;
             flex-wrap: wrap;
             gap: 0.45rem;
-            margin-bottom: 0.7rem;
-        }
-
-        .task-card__description {
-            color: var(--muted);
-            line-height: 1.45;
-            min-height: 1.2rem;
+            margin-bottom: 0.5rem;
         }
 
         .task-chip {
@@ -229,16 +208,6 @@ st.markdown(
             border: 1px solid rgba(148, 163, 184, 0.16);
             color: var(--text);
             font-size: 0.8rem;
-        }
-
-        .task-chip--status {
-            background: rgba(34, 197, 94, 0.14);
-            border-color: rgba(34, 197, 94, 0.2);
-        }
-
-        .task-chip--priority {
-            background: rgba(56, 189, 248, 0.14);
-            border-color: rgba(56, 189, 248, 0.2);
         }
 
         div[data-testid="stTextInput"] input,
@@ -265,20 +234,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 st.title("AI Task Manager")
-st.caption("Manage tasks with natural language quick add and chat-based task commands.")
+st.caption(
+    "Manage tasks with natural language quick add, automated priority parsing, and assistant chat."
+)
 
-tasks = load_tasks()
-stats = task_stats(tasks)
-
-agent_error = None
-try:
-    if "agent" not in st.session_state:
-        st.session_state.agent = createAgent()
-except Exception as exc:
-    agent_error = str(exc)
-    st.session_state.agent = None
+all_tasks_unfiltered = load_tasks(status_filter="all")
+stats = task_stats(all_tasks_unfiltered)
 
 st.markdown(
     """
@@ -286,7 +248,7 @@ st.markdown(
         <div class="hero__eyebrow">Task Control Center</div>
         <h1 class="hero__title">A cleaner way to manage tasks with natural language.</h1>
         <div class="hero__subtitle">
-            Quickly add work, track progress, and chat with your task assistant from one focused dashboard.
+            Quickly add work, track progress, filter tasks, and chat with your AI assistant from one dashboard.
         </div>
     </div>
     """,
@@ -295,7 +257,7 @@ st.markdown(
 
 metrics = st.columns(4, gap="small")
 metric_data = [
-    ("Total tasks", stats["total"], "All saved tasks in the database."),
+    ("Total tasks", stats["total"], "All saved tasks in database."),
     ("Pending", stats["pending"], "Waiting to be started."),
     ("In progress", stats["active"], "Currently being worked on."),
     ("Done", stats["done"], "Completed tasks."),
@@ -319,7 +281,7 @@ left_col, right_col = st.columns([1.05, 0.95], gap="large")
 with left_col:
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.subheader("Quick Add")
-    st.write("Type a task in plain English. Priority and due dates are extracted automatically when possible.")
+    st.write("Type a task in plain English. Priority and due dates are extracted automatically.")
 
     with st.form("quick_add_form", clear_on_submit=True):
         quick_text = st.text_input(
@@ -340,11 +302,57 @@ with left_col:
     st.divider()
     st.subheader("Task Feed")
 
-    if not tasks:
-        st.info("No tasks yet. Use Quick Add to create one.")
+    filter_col1, filter_col2 = st.columns([1, 1])
+    with filter_col1:
+        status_filter = st.selectbox(
+            "Status Filter",
+            options=["all", "pending", "in_progress", "done"],
+            format_func=lambda x: "All Statuses" if x == "all" else status_badge(x),
+        )
+    with filter_col2:
+        search_query = st.text_input("Search Tasks", placeholder="Filter by keyword...")
+
+    filtered_tasks = load_tasks(status_filter=status_filter, search_query=search_query)
+
+    if not filtered_tasks:
+        st.info("No matching tasks found.")
     else:
-        for task in tasks:
-            st.markdown(render_task_card(task), unsafe_allow_html=True)
+        for task in filtered_tasks:
+            st.markdown(
+                f"""
+                <div class="task-card">
+                    <div class="task-card__top">
+                        <div>
+                            <span class="task-card__id">Task #{task.id}</span>
+                            <div class="task-card__title">{task.title}</div>
+                        </div>
+                        <div class="task-chip">{status_badge(task.status)}</div>
+                    </div>
+                    <div class="task-card__meta">
+                        <span class="task-chip">{priority_badge(task.priority)}</span>
+                        <span class="task-chip">Due: {format_value(task.due_date)}</span>
+                        <span class="task-chip">Created: {format_value(task.created_at)}</span>
+                    </div>
+                    <div style="color: var(--muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
+                        {format_value(task.description)}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
+            with btn_col1:
+                if task.status != "done":
+                    if st.button("Mark Done", key=f"done_{task.id}"):
+                        update_todo.invoke({"todo_id": task.id, "status": "done"})
+                        st.toast(f"Task #{task.id} marked as done! ✅")
+                        st.rerun()
+            with btn_col2:
+                if st.button("Delete", key=f"del_{task.id}"):
+                    delete_todo.invoke({"todo_id": task.id})
+                    st.toast(f"Task #{task.id} deleted 🗑️")
+                    st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -353,19 +361,16 @@ with right_col:
     st.subheader("Assistant Chat")
     st.caption("Ask for updates, summaries, status changes, or task lookups in plain language.")
 
-    if agent_error:
-        st.warning(agent_error)
-        st.info("Set `GOOGLE_API_KEY` in your deployment environment to enable chat.")
-
     for message in st.session_state.messages:
         st.chat_message(message["role"]).markdown(message["content"])
 
-    query = st.chat_input("Ask the assistant to manage tasks", disabled=st.session_state.agent is None)
+    query = st.chat_input("Ask the assistant to manage tasks...")
     if query:
         st.session_state.messages.append({"role": "user", "content": query})
         st.chat_message("user").markdown(query)
 
-        response = st.session_state.agent.invoke(
+        agent = st.session_state.agent
+        response = agent.invoke(
             {"messages": [{"role": "user", "content": query}]},
             {"configurable": {"thread_id": "1"}},
         )
@@ -374,13 +379,13 @@ with right_col:
         st.chat_message("assistant").markdown(answer)
 
     st.divider()
-    st.subheader("How it works")
+    st.subheader("Features & Shortcuts")
     st.markdown(
         """
-        - Use natural language to add tasks quickly.
-        - Priority words like `high`, `medium`, and `low` are detected automatically.
-        - Dates like `tomorrow`, `next Monday`, or `25-06-2026` are parsed into due dates.
-        - Task updates are saved immediately in SQLite.
+        - **Quick Add**: `Buy milk tomorrow high priority`
+        - **Status Filters**: Filter view by `Pending`, `In Progress`, or `Done`
+        - **Direct Actions**: Use **Mark Done** and **Delete** buttons on task cards
+        - **AI Assistant**: Natural language task manipulation and summary reporting
         """
     )
 
