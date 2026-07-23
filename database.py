@@ -12,10 +12,10 @@ DATABASE_URL = "sqlite:///todo.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 LocalSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-Base: Any = declarative_base()
+Base = declarative_base()  # type: ignore
 
 
-class Todo(Base):  # type: ignore[misc, valid-type]
+class Todo(Base):  # type: ignore
     """SQLAlchemy model for storing todo tasks."""
 
     __tablename__ = "todos"
@@ -57,4 +57,4 @@ def get_db_session() -> Generator[Any, None, None]:
 
 def init_db(db_engine: Any = engine) -> None:
     """Initialize database tables."""
-    Base.metadata.create_all(bind=db_engine)
+    Base.metadata.create_all(bind=db_engine)  # type: ignore

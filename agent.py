@@ -5,31 +5,12 @@ import re
 from typing import Any
 
 from dotenv import load_dotenv
+from langchain.agents import create_agent as lc_create_agent
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from database import init_db
 from tools import create_todo, delete_todo, list_todos, quick_add, update_todo
-
-lc_create_agent: Any = None
-try:
-    from langchain.agents import create_agent as _agent_factory
-
-    lc_create_agent = _agent_factory
-except ImportError:
-    try:
-        from langgraph.prebuilt import create_react_agent as _react_factory
-
-        lc_create_agent = _react_factory
-    except ImportError:
-        lc_create_agent = None
-
-ChatLLMClass: Any = None
-try:
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    ChatLLMClass = ChatGoogleGenerativeAI
-except ImportError:
-    ChatLLMClass = None
 
 init_db()
 
@@ -57,10 +38,10 @@ class _OfflineAgent:
 
 def _build_llm() -> Any:
     api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key or ChatLLMClass is None:
-        raise RuntimeError("GOOGLE_API_KEY is missing or langchain_google_genai not installed.")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is missing.")
 
-    return ChatLLMClass(model="gemini-1.5-flash", google_api_key=api_key)
+    return ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
 
 
 ALL_TOOLS = [create_todo, quick_add, list_todos, update_todo, delete_todo]
@@ -87,7 +68,7 @@ memory = InMemorySaver()
 def create_agent() -> Any:
     """Factory function to build and configure the LangChain/LangGraph agent."""
     api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key or api_key == "your_google_api_key_here" or lc_create_agent is None:
+    if not api_key or api_key == "your_google_api_key_here":
         return _OfflineAgent()
 
     try:
