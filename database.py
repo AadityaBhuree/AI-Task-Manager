@@ -1,35 +1,59 @@
+from __future__ import annotations
 
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.orm import sessionmaker, declarative_base
+from contextlib import contextmanager
+from typing import Any, Generator
 
-DATABASE_URL = "sqlite:///todo.db" ###PGsQL
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-engine = create_engine(DATABASE_URL)
-LocalSession = sessionmaker(bind=engine)
+DATABASE_URL = "sqlite:///todo.db"
+
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+LocalSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 Base = declarative_base()
 
+
 class Todo(Base):
+    """SQLAlchemy model for storing todo tasks."""
+
     __tablename__ = "todos"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     title = Column(String(200), nullable=False, index=True)
     description = Column(String(500), default="")
-    status = Column(String(20), default="pending") #pending, in_progress, done
-    priority = Column(String(20), default="medium") #0: low, 1: medium, 2: high
+    status = Column(String(20), default="pending")  # 'pending', 'in_progress', 'done'
+    priority = Column(String(20), default="medium")  # 'low', 'medium', 'high'
     due_date = Column(String(20), default="")
     created_at = Column(String(20), default="")
 
-    def to_dict(self)-> dict:
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize model attributes into a dictionary."""
         return {
             "id": self.id,
             "title": self.title,
-            "description": self.description,
-            "status": self.status,
-            "priority": self.priority,
-            "due_date": self.due_date,
-            "created_at": self.created_at
+            "description": self.description or "",
+            "status": self.status or "pending",
+            "priority": self.priority or "medium",
+            "due_date": self.due_date or "",
+            "created_at": self.created_at or "",
         }
-        
-def init_db():
-    Base.metadata.create_all(bind=engine)
+
+
+@contextmanager
+def get_db_session() -> Generator[Session, None, None]:
+    """Provide a transactional scope around a series of operations."""
+    session = LocalSession()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def init_db(db_engine=engine) -> None:
+    """Initialize database tables."""
+    Base.metadata.create_all(bind=db_engine)

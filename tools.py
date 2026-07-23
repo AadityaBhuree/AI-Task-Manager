@@ -1,96 +1,119 @@
-from langchain.tools import tool
-from database import LocalSession , Todo
-from datetime import datetime
-from dateparser.search import search_dates
+from __future__ import annotations
+
 import re
+from datetime import datetime
+from typing import Any
+
+from dateparser.search import search_dates
+from langchain.tools import tool
+
+from database import Todo, get_db_session
+
+VALID_PRIORITIES = {"low", "medium", "high"}
+VALID_STATUSES = {"pending", "in_progress", "done"}
 
 
-#CRUD
+def create_todo_raw(
+    title: str,
+    description: str = "",
+    priority: str = "medium",
+    due_date: str = "",
+) -> str:
+    """Core logic to create and save a new todo task."""
+    if not title or not title.strip():
+        return "Error: Task title cannot be empty."
 
-@tool
-def create_todo(title: str, description: str = "", priority: str ="medium",due_date: str = ""):
-    """
-    Create and save a new todo task.
-    
-    Args:
-        title :Short title of the task (required).
-        description: Optional detailed note of the task.
-        priority : 'low', 'medium', or 'high' (default is 'medium').
-        due_date : Due date eg. '25-05-2026 (optional).
-    """
+    task_priority = priority.lower().strip() if priority else "medium"
+    if task_priority not in VALID_PRIORITIES:
+        task_priority = "medium"
 
-    return create_todo_raw(title=title, description=description, priority=priority, due_date=due_date)
+    created_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
 
-
-def create_todo_raw(title: str, description: str = "", priority: str ="medium", due_date: str = ""):
-    task_priorities = "medium"
-    if priority and priority.lower() in ["low", "medium", "high"]:
-        task_priorities = priority.lower()
-
-    with LocalSession() as session:
+    with get_db_session() as session:
         todo = Todo(
             title=title.strip()[:200],
-            description=(description or "")[:500],
-            priority=task_priorities,
-            due_date=due_date,
-            created_at=datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+            description=(description or "").strip()[:500],
+            priority=task_priority,
+            due_date=(due_date or "").strip(),
+            created_at=created_time,
+            status="pending",
         )
         session.add(todo)
-        session.commit()
+        session.flush()
+        task_id = todo.id
 
-        session.refresh(todo)
-        return f"Task created successfully with ID: {todo.id}"
-    
+    return f"Task created successfully with ID: {task_id}"
+
 
 @tool
-def list_todos(status: str = None, priority: str = None):
-    """
-    List all todo tasks, with optional filtering by status and priority.
-    
+def create_todo(
+    title: str,
+    description: str = "",
+    priority: str = "medium",
+    due_date: str = "",
+) -> str:
+    """Create and save a new todo task.
+
     Args:
-        status : Filter tasks by their status ('pending', 'in_progress', 'done').
-        priority : Filter tasks by their priority ('low', 'medium', 'high').
+        title: Short title of the task (required).
+        description: Optional detailed note of the task.
+        priority: 'low', 'medium', or 'high' (default is 'medium').
+        due_date: Due date e.g. '25-05-2026' (optional).
     """
-    with LocalSession() as session:
+    return create_todo_raw(
+        title=title,
+        description=description,
+        priority=priority,
+        due_date=due_date,
+    )
+
+
+@tool
+def list_todos(
+    status: str | None = None,
+    priority: str | None = None,
+) -> list[dict[str, Any]]:
+    """List all todo tasks, with optional filtering by status and priority.
+
+    Args:
+        status: Filter tasks by status ('pending', 'in_progress', 'done').
+        priority: Filter tasks by priority ('low', 'medium', 'high').
+    """
+    with get_db_session() as session:
         query = session.query(Todo)
 
         if status and status != "all":
-            query = query.filter(Todo.status == status)
+            query = query.filter(Todo.status == status.lower().strip())
 
         if priority and priority != "all":
-            query = query.filter(Todo.priority == priority)
-        
-        todos = query.order_by(Todo.id).all()
-        
-        if not todos:
-            return "No tasks found for your filter values."
+            query = query.filter(Todo.priority == priority.lower().strip())
 
-        allTodos = {todo.id: todo for todo in todos}
-        return allTodos
+        todos = query.order_by(Todo.id.asc()).all()
+        return [todo.to_dict() for todo in todos]
 
 
 @tool
-def quick_add(user_text: str):
-    """
-    Quick add a todo using natural language. Example: "Buy milk tomorrow morning high priority"
-    This will attempt to extract a due date and priority and create the task.
+def quick_add(user_text: str) -> str:
+    """Quick add a todo using natural language.
+
+    Example: "Buy milk tomorrow morning high priority"
+    Extracts priority and due date automatically.
     """
     if not user_text or not user_text.strip():
-        return "No text provided for quick add."
+        return "Error: No text provided for quick add."
 
     text = user_text.strip()
     text_lower = text.lower()
 
-    # detect priority
-    priority = None
+    # Detect priority
+    detected_priority = "medium"
     for p in ["high", "medium", "low"]:
         if re.search(rf"\b{p}\b", text_lower):
-            priority = p
-            # remove priority word from title
+            detected_priority = p
             text = re.sub(rf"\b{p}\b", "", text, flags=re.IGNORECASE)
             break
 
-    # find date expressions
+    # Detect date phrase
     due_date = ""
     try:
         dates = search_dates(text, settings={"PREFER_DATES_FROM": "future"})
@@ -98,76 +121,83 @@ def quick_add(user_text: str):
         dates = None
 
     if dates:
-        # take first detected date
         matched_text, dt = dates[0]
         due_date = dt.strftime("%d-%m-%Y")
-        # remove matched date phrase from title
         text = text.replace(matched_text, "")
 
-    # clean common verbs/phrases
-    text = re.sub(r"(?i)remind me to |(?i)add |(?i)create |(?i)please |(?i)task:|(?i)todo:", "", text)
-    title = re.sub(r"\s+", " ", text).strip()
-    if not title:
-        title = "New Task"
+    # Clean action verbs/phrases
+    text = re.sub(
+        r"(?i)\b(remind me to|add|create|please|task:|todo:)\b",
+        "",
+        text,
+    )
+    cleaned_title = re.sub(r"\s+", " ", text).strip()
+    if not cleaned_title:
+        cleaned_title = "New Task"
 
-    return create_todo_raw(title=title, description="", priority=(priority or "medium"), due_date=due_date)
+    return create_todo_raw(
+        title=cleaned_title,
+        description="",
+        priority=detected_priority,
+        due_date=due_date,
+    )
 
 
 @tool
 def update_todo(
     todo_id: int,
-    title: str = None,
-    description: str = None,
-    status: str = None,
-    priority: str = None,
-    due_date: str = None):
-    """
-    Update an existing todo task by its ID.
-    
+    title: str | None = None,
+    description: str | None = None,
+    status: str | None = None,
+    priority: str | None = None,
+    due_date: str | None = None,
+) -> str:
+    """Update an existing todo task by its ID.
+
     Args:
-        todo_id : The unique identifier of the task to update (required).
-        title : New title for the task (optional).
+        todo_id: The unique identifier of the task to update (required).
+        title: New title for the task (optional).
         description: New description for the task (optional).
-        status : New status ('pending', 'in_progress', 'done') (optional).
-        priority : New priority ('low', 'medium', 'high') (optional).
-        due_date : New due date eg. '25-05-2026' (optional).
+        status: New status ('pending', 'in_progress', 'done') (optional).
+        priority: New priority ('low', 'medium', 'high') (optional).
+        due_date: New due date e.g. '25-05-2026' (optional).
     """
-    with LocalSession() as session:
+    with get_db_session() as session:
         todo = session.query(Todo).filter(Todo.id == todo_id).first()
-        
-        if not todo:
-            return f"No task found with ID: {todo_id}"
 
-        if title is not None:
-            todo.title = title
+        if not todo:
+            return f"Error: No task found with ID: {todo_id}"
+
+        if title is not None and title.strip():
+            todo.title = title.strip()[:200]
         if description is not None:
-            todo.description = description
+            todo.description = description.strip()[:500]
         if status is not None:
-            todo.status = status
+            norm_status = status.lower().strip()
+            if norm_status in VALID_STATUSES:
+                todo.status = norm_status
         if priority is not None:
-            todo.priority = priority
+            norm_priority = priority.lower().strip()
+            if norm_priority in VALID_PRIORITIES:
+                todo.priority = norm_priority
         if due_date is not None:
-            todo.due_date = due_date
+            todo.due_date = due_date.strip()
 
-        session.commit()
-        session.refresh(todo)
         return f"Task with ID: {todo_id} updated successfully."
-    
+
+
 @tool
-def delete_todo(todo_id: int):
-    """
-    Delete a todo task by its ID.
-    
+def delete_todo(todo_id: int) -> str:
+    """Delete a todo task by its ID.
+
     Args:
-        todo_id : The unique identifier of the task to delete (required).
+        todo_id: The unique identifier of the task to delete (required).
     """
-    with LocalSession() as session:
+    with get_db_session() as session:
         todo = session.query(Todo).filter(Todo.id == todo_id).first()
-        
+
         if not todo:
-            return f"No task found with ID: {todo_id}"
+            return f"Error: No task found with ID: {todo_id}"
 
         session.delete(todo)
-        session.commit()
-        
         return f"Task with ID: {todo_id} deleted successfully."
