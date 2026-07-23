@@ -5,8 +5,20 @@ import re
 from typing import Any
 
 from dotenv import load_dotenv
-from langchain.agents import create_agent as lc_create_agent
-from langchain_google_genai import ChatGoogleGenerativeAI
+
+try:
+    from langchain.agents import create_agent as lc_create_agent
+except ImportError:
+    try:
+        from langgraph.prebuilt import create_react_agent as lc_create_agent
+    except ImportError:
+        lc_create_agent = None
+
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None
+
 from langgraph.checkpoint.memory import InMemorySaver
 
 from database import init_db
@@ -38,10 +50,10 @@ class _OfflineAgent:
         }
 
 
-def _build_llm() -> ChatGoogleGenerativeAI:
+def _build_llm() -> Any:
     api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY is missing.")
+    if not api_key or not ChatGoogleGenerativeAI:
+        raise RuntimeError("GOOGLE_API_KEY is missing or langchain_google_genai not installed.")
 
     return ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
 
@@ -70,7 +82,7 @@ memory = InMemorySaver()
 def create_agent() -> Any:
     """Factory function to build and configure the LangChain/LangGraph agent."""
     api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key or api_key == "your_google_api_key_here":
+    if not api_key or api_key == "your_google_api_key_here" or lc_create_agent is None:
         return _OfflineAgent()
 
     try:
