@@ -169,21 +169,27 @@ def update_todo(
             return f"Error: No task found with ID: {todo_id}"
 
         if title is not None and title.strip():
-            todo.title = title.strip()[:200]
+            todo.title = title.strip()[:200]  # type: ignore[assignment]
         if description is not None:
-            todo.description = description.strip()[:500]
+            todo.description = description.strip()[:500]  # type: ignore[assignment]
         if status is not None:
             norm_status = status.lower().strip()
             if norm_status in VALID_STATUSES:
-                todo.status = norm_status
+                todo.status = norm_status  # type: ignore[assignment]
         if priority is not None:
             norm_priority = priority.lower().strip()
             if norm_priority in VALID_PRIORITIES:
-                todo.priority = norm_priority
+                todo.priority = norm_priority  # type: ignore[assignment]
         if due_date is not None:
-            todo.due_date = due_date.strip()
+            todo.due_date = due_date.strip()  # type: ignore[assignment]
 
         return f"Task with ID: {todo_id} updated successfully."
+
+
+@tool
+def update_todo_status(todo_id: int, status: str) -> str:
+    """Convenience helper to update a task status directly."""
+    return str(update_todo.invoke({"todo_id": todo_id, "status": status}))
 
 
 @tool

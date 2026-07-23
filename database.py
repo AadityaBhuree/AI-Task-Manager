@@ -15,7 +15,7 @@ LocalSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base: Any = declarative_base()
 
 
-class Todo(Base):
+class Todo(Base):  # type: ignore[misc, valid-type]
     """SQLAlchemy model for storing todo tasks."""
 
     __tablename__ = "todos"
@@ -55,6 +55,6 @@ def get_db_session() -> Generator[Any, None, None]:
         session.close()
 
 
-def init_db(db_engine=engine) -> None:
+def init_db(db_engine: Any = engine) -> None:
     """Initialize database tables."""
     Base.metadata.create_all(bind=db_engine)
