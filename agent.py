@@ -33,13 +33,11 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 
 class _OfflineMessage:
-
     def __init__(self, content: str) -> None:
         self.content = content
 
 
 class _OfflineAgent:
-
     def invoke(self, *args: Any, **kwargs: Any) -> dict[str, list[_OfflineMessage]]:
         return {
             "messages": [
