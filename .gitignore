@@ -10,6 +10,8 @@ __pycache__/
 
 # SQLite database
 todo.db
+checkpoints.db
+*.sqlite
 
 # Streamlit cache
 .streamlit/

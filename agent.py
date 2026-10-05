@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import os
 import re
+import sqlite3
 from typing import Any
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent as lc_create_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import InMemorySaver
+
+try:
+    from langgraph.checkpoint.sqlite import SqliteSaver
+except ImportError:
+    SqliteSaver = None  # type: ignore
 
 from database import init_db
 from tools import create_todo, delete_todo, list_todos, quick_add, update_todo
@@ -26,6 +32,9 @@ class _OfflineMessage:
 
 
 class _OfflineAgent:
+    def __init__(self, checkpointer: Any = None) -> None:
+        self.checkpointer = checkpointer
+
     def invoke(self, *args: Any, **kwargs: Any) -> dict[str, list[_OfflineMessage]]:
         return {
             "messages": [
@@ -62,14 +71,29 @@ GUIDELINES:
 - Keep responses short, clear, actionable, and easy to scan. Include task IDs when referring to tasks.
 """
 
-memory = InMemorySaver()
+
+def get_checkpointer(db_path: str = "checkpoints.db") -> Any:
+    """Initialize and return a persistent SqliteSaver instance, falling back to InMemorySaver."""
+    if SqliteSaver is not None:
+        try:
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            saver = SqliteSaver(conn)
+            saver.setup()
+            return saver
+        except Exception:
+            pass
+    return InMemorySaver()
 
 
-def create_agent() -> Any:
-    """Factory function to build and configure the LangChain/LangGraph agent."""
+memory = get_checkpointer()
+
+
+def create_agent(checkpointer: Any = None) -> Any:
+    """Factory function to build and configure the LangChain/LangGraph agent with persistent checkpointing."""
+    active_checkpointer = checkpointer if checkpointer is not None else memory
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key or api_key == "your_google_api_key_here":
-        return _OfflineAgent()
+        return _OfflineAgent(checkpointer=active_checkpointer)
 
     try:
         llm = _build_llm()
@@ -77,10 +101,10 @@ def create_agent() -> Any:
             model=llm,
             tools=ALL_TOOLS,
             system_prompt=SYSTEM_PROMPT,
-            checkpointer=memory,
+            checkpointer=active_checkpointer,
         )
     except Exception:
-        return _OfflineAgent()
+        return _OfflineAgent(checkpointer=active_checkpointer)
 
 
 # Backwards compatibility alias

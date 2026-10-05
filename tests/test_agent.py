@@ -59,3 +59,46 @@ def test_offline_agent_fallback(monkeypatch):
     res = agent.invoke({"messages": [{"role": "user", "content": "hi"}]})
     assert "messages" in res
     assert "GOOGLE_API_KEY" in res["messages"][0].content
+
+
+def test_get_checkpointer_sqlite(tmp_path):
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    from agent import get_checkpointer
+
+    db_path = str(tmp_path / "checkpoints.db")
+    saver = get_checkpointer(db_path)
+    assert isinstance(saver, SqliteSaver)
+
+
+def test_checkpointer_persistence_and_isolation(tmp_path):
+    import sqlite3
+
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    from agent import get_checkpointer
+
+    db_path = str(tmp_path / "isolated.db")
+    saver = get_checkpointer(db_path)
+    assert isinstance(saver, SqliteSaver)
+
+    # Verify tables created
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    assert "checkpoints" in tables
+
+    # Test re-opening the same DB file retains schema
+    saver2 = get_checkpointer(db_path)
+    assert isinstance(saver2, SqliteSaver)
+
+
+def test_create_agent_checkpointer_binding(tmp_path):
+    from agent import create_agent, get_checkpointer
+
+    custom_saver = get_checkpointer(str(tmp_path / "custom.db"))
+    agent = create_agent(checkpointer=custom_saver)
+    assert hasattr(agent, "checkpointer")
+    assert agent.checkpointer is custom_saver
